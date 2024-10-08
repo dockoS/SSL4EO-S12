@@ -185,7 +185,7 @@ def train_dino(args):
         bands = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B11', 'B12']        
         args.n_channels = 12
     elif args.bands == 'B13':
-        bands = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12']        
+        bands = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', '  A', 'B09', 'B10', 'B11', 'B12']        
         args.n_channels = 13    
     elif args.bands == 'B2':
         bands = ['VH', 'VV']

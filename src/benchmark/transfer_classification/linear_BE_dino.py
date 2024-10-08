@@ -15,7 +15,7 @@ import os
 import argparse
 import json
 from pathlib import Path
-
+import sys
 import torch
 from torch import nn
 import torch.distributed as dist
@@ -30,35 +30,40 @@ from models.dino import vision_transformer as vits
 # load bigearthnet dataset
 from datasets.BigEarthNet.bigearthnet_dataset_seco import Bigearthnet
 from datasets.BigEarthNet.bigearthnet_dataset_seco_lmdb_s2_uint8 import LMDBDataset,random_subset
-from cvtorchvision import cvtransforms
+
 ### end of change ###
 import pdb
-
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import average_precision_score
 import builtins
-
+torch.device('cpu')
 def eval_linear(args):
-    utils.init_distributed_mode(args)
-    if args.rank != 0:
-        def print_pass(*args):
-            pass
-        builtins.print = print_pass
+    # #utils.init_distributed_mode(args)
+    # if args.rank != 0:
+    #     def print_pass(*args):
+    #         pass
+    #     builtins.print = print_pass
     print("git:\n  {}\n".format(utils.get_sha()))
     print("\n".join("%s: %s" % (k, str(v)) for k, v in sorted(dict(vars(args)).items())))
-    cudnn.benchmark = True
+    
+    #cudnn.benchmark = True
 
     # ============ building network ... ============
     # if the network is a Vision Transformer (i.e. vit_tiny, vit_small, vit_base)
+  
     if args.arch in vits.__dict__.keys():
         model = vits.__dict__[args.arch](patch_size=args.patch_size, num_classes=0, in_chans=13)
         embed_dim = model.embed_dim * (args.n_last_blocks + int(args.avgpool_patchtokens))
     # otherwise, we check if the architecture is in torchvision models
     elif args.arch in torchvision_models.__dict__.keys():
+
         model = torchvision_models.__dict__[args.arch]()
         embed_dim = model.fc.weight.shape[1]
         model.conv1 = torch.nn.Conv2d(13, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
         model.fc = nn.Identity()
+        model = nn.Sequential(*list(model.children())[:-2]) 
         #model.fc = torch.nn.Linear(2048,19)
     # if the network is a XCiT
     elif "xcit" in args.arch:
@@ -67,32 +72,26 @@ def eval_linear(args):
     else:
         print(f"Unknow architecture: {args.arch}")
         sys.exit(1)
-    model.cuda()
+    #model.cuda()
     model.eval()
     # load weights to evaluate
     utils.load_pretrained_weights(model, args.pretrained, args.checkpoint_key, args.arch, args.patch_size)
+    print(model)
+    seg_model=SegmentationClassifier(embed_dim,num_classes=10)
+    print(seg_model)
+    print(embed_dim)
     print(f"Model {args.arch} built.")
+    data=torch.rand((32,13,112,112))
+    x=model(data)
+    mask=seg_model(x)
+    print(mask.shape)
 
+"""
     linear_classifier = LinearClassifier(embed_dim, num_labels=19)
     linear_classifier = linear_classifier.cuda()
     linear_classifier = nn.parallel.DistributedDataParallel(linear_classifier, device_ids=[args.gpu])
 
     # ============ preparing data ... ============
-
-    train_transform = cvtransforms.Compose([
-        cvtransforms.RandomResizedCrop(224, scale=(0.8,1.0)),
-        cvtransforms.RandomHorizontalFlip(),
-        cvtransforms.ToTensor(),
-        #cvtransforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
-    #dataset_train = datasets.ImageFolder(os.path.join(args.data_path, "train"), transform=train_transform)
-
-    val_transform = cvtransforms.Compose([
-        cvtransforms.Resize(256),
-        cvtransforms.CenterCrop(224),
-        cvtransforms.ToTensor(),
-        #cvtransforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
 
 
 
@@ -208,7 +207,7 @@ def eval_linear(args):
     print("Training of the supervised linear classifier on frozen features completed.\n"
                 "Top-1 test accuracy: {acc:.1f}".format(acc=best_acc))
 
-
+"""
 def train(model, linear_classifier, optimizer, loader, epoch, n, avgpool):
     linear_classifier.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -323,6 +322,28 @@ class LinearClassifier(nn.Module):
 
         # linear layer
         return self.linear(x)
+    
+class SegmentationClassifier(nn.Module):
+    """Segmentation classifier layer to train on top of frozen features"""
+    def __init__(self, dim, num_classes):
+        super(SegmentationClassifier, self).__init__()
+        self.num_classes = num_classes
+        
+        # A 1x1 convolutional layer to output the desired number of classes (like in linear classifier)
+        self.conv = nn.Conv2d(dim, num_classes, kernel_size=1)
+        
+        # Initialize weights (similar to the LinearClassifier's initialization)
+        self.conv.weight.data.normal_(mean=0.0, std=0.01)
+        self.conv.bias.data.zero_()
+
+    def forward(self, x):
+        # Apply 1x1 convolution to map the features to the number of classes
+        x = self.conv(x)
+        
+        # Optional: Upsample the output back to the original size
+        x = F.interpolate(x, scale_factor=32, mode='bilinear', align_corners=True)
+        
+        return x
 
 
 if __name__ == '__main__':
@@ -334,7 +355,7 @@ if __name__ == '__main__':
         We typically set this to False for ViT-Small and to True with ViT-Base.""")
     parser.add_argument('--arch', default='vit_small', type=str, help='Architecture')
     parser.add_argument('--patch_size', default=16, type=int, help='Patch resolution of the model.')
-    parser.add_argument('--pretrained', default='', type=str, help="Path to pretrained weights to evaluate.")
+    parser.add_argument('--pretrained', default='/Users/mac/Desktop/docko/tolbi-next-gen/SSL4EO-S12/data/B13_rn50_dino_0099_ckpt.pth', type=str, help="Path to pretrained weights to evaluate.")
     parser.add_argument("--checkpoint_key", default="teacher", type=str, help='Key to use in the checkpoint (example: "teacher")')
     parser.add_argument('--epochs', default=100, type=int, help='Number of epochs of training.')
     parser.add_argument("--lr", default=0.001, type=float, help="""Learning rate at the beginning of

@@ -5,3 +5,7 @@
 **/checkpoints/*
 **/lightning_logs/
 **/results/*
+/env
+/data
+data/
+env/

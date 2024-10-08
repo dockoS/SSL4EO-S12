@@ -145,6 +145,7 @@ class Bigearthnet(Dataset):
         self.normalize = normalize
 
         if download:
+          
             download_and_extract_archive(self.url, self.root)
             download_url(self.list_file[self.split], self.root, f'{self.split}.txt')
             for url in self.bad_patches:
@@ -215,18 +216,18 @@ class Bigearthnet(Dataset):
 if __name__ == '__main__':
     import os
     import argparse
-    from bigearthnet_dataset_seco_lmdb import make_lmdb
+    from bigearthnet_dataset_seco_lmdb_s2_uint8 import make_lmdb
     import time
     import torch
     from torchvision import transforms
     ## change02: `pip install opencv-torchvision-transforms-yuzhiyang`
-    from cvtorchvision import cvtransforms
+
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/mnt/d/codes/SSL_examples/datasets/BigEarthNet')
     parser.add_argument('--save_dir', type=str, default='/mnt/d/codes/SSL_examples/datasets/BigEarthNet/dataload_op1_lmdb')
-    parser.add_argument('--make_lmdb_dataset', type=bool, default=False)
-    parser.add_argument('--download', type=bool, default=False)
+    parser.add_argument('--make_lmdb_dataset', type=bool, default=True)
+    parser.add_argument('--download', type=bool, default=True)
     args = parser.parse_args()
 
     make_lmdb_dataset = args.make_lmdb_dataset
@@ -240,15 +241,17 @@ if __name__ == '__main__':
         train_dataset = Bigearthnet(
             root=args.data_dir,
             split='train',
-            bands=all_bands
+            bands=all_bands,
+            download=args.download
         )
     
         make_lmdb(train_dataset, lmdb_file=os.path.join(args.save_dir, 'train_B12.lmdb'))
-
+        print(args.download)
         val_dataset = Bigearthnet(
             root=args.data_dir,
             split='val',
-            bands=all_bands
+            bands=all_bands,
+            download=args.download
         )
 
         make_lmdb(val_dataset, lmdb_file=os.path.join(args.save_dir, 'val_B12.lmdb'))
